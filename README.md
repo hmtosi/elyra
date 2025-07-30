@@ -265,4 +265,5 @@ documentation, and invite you to attend our weekly dev community meetings.
 ## Meetup with Us!
 Our daily and weekly community meeting schedule can be found [here](https://github.com/elyra-ai/community#daily-dev-meetings).
 
-## Hannah Edit to Generate Commit to Run GitHub Actions
+## Hannah Edit to Generate Commit to Run GitHub Actions ##
+take 2
