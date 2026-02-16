@@ -238,7 +238,7 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
                 f"The pipeline name '{pipeline_name}' is not DNS compliant. \n\n"
                 "Action Required: Please rename your notebook/pipeline. "
                 "Use only lowercase letters, numbers, and hyphens (no underscores or dots). "
-                "Must start/end with a letter or number and be under 58 characters."
+                "Must start/end with a letter or number and be 1 - 58 characters long. "
             )
             raise SyntaxError(error_message_str)
 
