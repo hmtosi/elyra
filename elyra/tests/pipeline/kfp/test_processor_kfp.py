@@ -357,6 +357,123 @@ def test_add_kubernetes_toleration(processor: KfpPipelineProcessor):
 
 
 # ---------------------------------------------------
+# Tests for DNS validation in KfpPipelineProcessor.process
+# ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "pipeline_name,should_pass",
+    [
+        # Valid DNS-compliant names
+        ("test", True),
+        ("test-pipeline", True),
+        ("test123", True),
+        ("123test", True),
+        ("a", True),
+        ("test-123-pipeline", True),
+        ("my-pipeline-1", True),
+        ("a1b2c3", True),
+        ("test-pipeline-with-multiple-hyphens", True),
+        ("a" * 58, True),  # Max length (58 characters)
+        ("test--pipeline", True),  # Double hyphen is valid
+        ("1-2-3", True),  # All numbers with hyphens is valid
+        # Invalid DNS-compliant names
+        ("Test", False),  # Uppercase
+        ("TEST", False),  # All uppercase
+        ("test_pipeline", False),  # Underscore
+        ("test.pipeline", False),  # Dot
+        ("test pipeline", False),  # Space
+        ("-test", False),  # Starts with hyphen
+        ("test-", False),  # Ends with hyphen
+        ("a" * 59, False),  # Too long (59 characters)
+        ("", False),  # Empty string
+        ("test@pipeline", False),  # Special character (@)
+        ("test!pipeline", False),  # Special character (!)
+        ("Test-Pipeline", False),  # Mixed case
+        ("-", False),  # Just a hyphen
+        ("test_123", False),  # Underscore with numbers
+    ],
+)
+def test_dns_validation_in_process(monkeypatch, processor: KfpPipelineProcessor, pipeline_name, should_pass):
+    """
+    Verify that the DNS validation logic in the process method correctly validates
+    pipeline names according to DNS compliance rules:
+    - Only lowercase letters (a-z), numbers (0-9), and hyphens (-)
+    - Must start and end with a letter or number
+    - Must be between 1 and 58 characters long
+    """
+    from unittest.mock import MagicMock
+
+    # Create a minimal pipeline object with the test name
+    pipeline = Pipeline(
+        id="test-pipeline-id",
+        name=pipeline_name,
+        description="Test pipeline for DNS validation",
+        runtime="kfp",
+        runtime_config="test-config",
+        source="test.pipeline",
+    )
+
+    # Mock the runtime configuration retrieval
+    mock_runtime_config = MagicMock()
+    mock_runtime_config.name = "test-config"
+    mock_runtime_config.metadata = {
+        "display_name": "Test KFP",
+        "api_endpoint": "http://example.com:31737",
+        "user_namespace": "kubeflow-user",
+        "auth_type": "NO_AUTHENTICATION",
+        "engine": "Argo",
+        "cos_endpoint": "http://example.com:31671",
+        "cos_bucket": "test-bucket",
+        "cos_auth_type": "USER_CREDENTIALS",
+        "cos_username": "test_user",
+        "cos_password": "test_password",
+    }
+
+    # Mock the KFP client to prevent actual API calls
+    mock_kfp_client = MagicMock()
+    mock_kfp_client.list_experiments.return_value = MagicMock()
+
+    # Mock processor methods to avoid actual processing but allow DNS validation to run
+    monkeypatch.setattr(processor, "_get_metadata_configuration", lambda schemaspace, name: mock_runtime_config)
+    monkeypatch.setattr(processor, "_verify_cos_connectivity", lambda x: True)
+    monkeypatch.setattr(processor, "_upload_dependencies_to_object_store", lambda w, x, y, prefix: True)
+    monkeypatch.setattr(processor, "_initialize_kfp_client", lambda x, y: mock_kfp_client)
+    monkeypatch.setattr(processor, "_generate_pipeline_dsl", lambda **kwargs: "mock_dsl")
+    monkeypatch.setattr(processor, "_compile_pipeline_dsl", lambda **kwargs: None)
+    monkeypatch.setattr(processor, "_upload_pipeline_to_server", lambda **kwargs: None)
+
+    # Check that valid pipeline names do not raise an exception
+    if should_pass:
+        # Valid pipeline names should not raise an exception
+        try:
+            processor.process(pipeline)
+        # Print an error if they do
+        except SyntaxError:
+            pytest.fail(f"Pipeline name '{pipeline_name}' should be valid but raised SyntaxError")
+
+    # Check that invalid pipeline names raise an exception
+    else:
+        # Invalid pipeline names should raise a SyntaxError
+        with pytest.raises(SyntaxError) as exc_info:
+            processor.process(pipeline)
+
+        # Verify that the error message contains all required elements
+        error_message = str(exc_info.value)
+        assert pipeline_name in error_message, "Error message should contain the invalid pipeline name"
+        assert "not DNS compliant" in error_message, "Error message should mention DNS compliance"
+        assert "Action Required" in error_message, "Error message should include action required section"
+        assert "lowercase letters" in error_message, "Error message should mention lowercase letters"
+        assert "numbers" in error_message, "Error message should mention numbers"
+        assert "hyphens" in error_message, "Error message should mention hyphens"
+        assert "no underscores or dots" in error_message, "Error message should mention what to avoid"
+        assert (
+            "start/end with a letter or number" in error_message
+        ), "Error message should mention start/end requirements"
+        assert "58 characters" in error_message, "Error message should mention character limit"
+
+
+# ---------------------------------------------------
 # Tests for methods
 #  - KfpPipelineProcessor._generate_pipeline_dsl
 #  - KfpPipelineProcessor._compile_pipeline_dsl
