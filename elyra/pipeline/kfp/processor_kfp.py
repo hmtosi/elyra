@@ -236,8 +236,8 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
         if not re.fullmatch(dns_regex, pipeline_name):
             error_message_str = (
                 f"The pipeline name '{pipeline_name}' is not DNS compliant. \n\n"
-                "Action Required: Please rename your notebook/pipeline."
-                "Use only lowercase letters, numbers, and hyphens (no underscores or dots)."
+                "Action Required: Please rename your notebook/pipeline. "
+                "Use only lowercase letters, numbers, and hyphens (no underscores or dots). "
                 "Must start/end with a letter or number and be under 58 characters."
             )
             raise SyntaxError(error_message_str)
