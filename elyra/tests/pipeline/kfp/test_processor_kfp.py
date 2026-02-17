@@ -440,7 +440,7 @@ def test_dns_validation_called_in_process(monkeypatch, processor: KfpPipelinePro
     )
 
     # Mock the runtime configuration retrieval
-    mock_runtime_config = MagicMock(spec=RuntimeConfig)
+    mock_runtime_config = MagicMock()
     mock_runtime_config.name = "test-config"
     mock_runtime_config.metadata = {
         "display_name": "Test KFP",
