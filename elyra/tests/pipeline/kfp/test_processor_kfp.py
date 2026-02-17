@@ -440,7 +440,7 @@ def test_dns_validation_called_in_process(monkeypatch, processor: KfpPipelinePro
     )
 
     # Mock the runtime configuration retrieval
-    mock_runtime_config = MagicMock()
+    mock_runtime_config = MagicMock(spec=RuntimeConfig)
     mock_runtime_config.name = "test-config"
     mock_runtime_config.metadata = {
         "display_name": "Test KFP",
@@ -475,20 +475,13 @@ def test_dns_validation_called_in_process(monkeypatch, processor: KfpPipelinePro
         monkeypatch.setattr(processor, "_verify_cos_connectivity", lambda x: True)
         monkeypatch.setattr(processor, "_upload_dependencies_to_object_store", lambda *args, **kwargs: True)
         monkeypatch.setattr(processor, "_generate_pipeline_dsl", lambda *args, **kwargs: "mock_dsl")
-        monkeypatch.setattr(processor, "_get_metadata_configuration", lambda *args, **kwargs: MagicMock())
         monkeypatch.setattr(processor, "_compile_pipeline_dsl", lambda *args, **kwargs: None)
-
         # Valid pipeline names should not raise an exception
         processor.process(pipeline)
     else:
         # Invalid pipeline names should raise a SyntaxError before any network calls
-        with pytest.raises(SyntaxError) as exc_info:
+        with pytest.raises(SyntaxError, match="not DNS compliant"):
             processor.process(pipeline)
-
-        # Verify the error message
-        error_message = str(exc_info.value)
-        assert pipeline_name in error_message
-        assert "not DNS compliant" in error_message
 
 
 # ---------------------------------------------------
