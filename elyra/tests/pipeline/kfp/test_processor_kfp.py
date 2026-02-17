@@ -1226,8 +1226,7 @@ def enable_and_disable_crio(request):
 )
 @pytest.mark.skip(
     reason="This test is not compatible with KFP v2 as the generated YAML is ignoring \
-            attributes from the source pipeline file"
-)
+            attributes from the source pipeline file")
 def test_generate_pipeline_dsl_compile_pipeline_dsl_optional_elyra_properties(
     monkeypatch, processor: KfpPipelineProcessor, metadata_dependencies: Dict[str, Any], tmpdir
 ):
