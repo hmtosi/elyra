@@ -358,7 +358,7 @@ def test_add_kubernetes_toleration(processor: KfpPipelineProcessor):
 
 
 # ---------------------------------------------------
-# Tests for DNS validation in KfpPipelineProcessor.process
+# Tests for DNS validation in KfpPipelineProcessor
 # ---------------------------------------------------
 
 
@@ -367,15 +367,14 @@ def test_add_kubernetes_toleration(processor: KfpPipelineProcessor):
     [
         # Valid DNS-compliant names
         ("test", True),  # All letters
-        ("test-pipeline", True), # Letters and hyphen
+        ("test-pipeline", True),  # Letters and hyphen
         ("test123", True),  # Letters and numbers
-        ("123test", True),  # Numbers and Letters
+        ("123test", True),  # Numbers and letters
         ("1-2-3", True),  # Numbers and hyphens
-        ("test-123-pipeline", True), # Multiple hyphens
+        ("test-123-pipeline", True),  # Numbers letters and hyphens
         ("test--pipeline", True),  # Double hyphen
         ("a" * 58, True),  # Max length (58 characters)
-        ("a", True), # Min length (1 charachter)
-        
+        ("a", True),  # Min length (1 character)
         # Invalid DNS-compliant names
         ("Test", False),  # Uppercase
         ("TEST", False),  # All uppercase
@@ -393,19 +392,48 @@ def test_add_kubernetes_toleration(processor: KfpPipelineProcessor):
         ("test!pipeline", False),  # Special character (!)
     ],
 )
-def test_dns_validation_in_process(monkeypatch, processor: KfpPipelineProcessor, pipeline_name, should_pass):
+def test_validate_pipeline_name(pipeline_name, should_pass):
     """
-    Verify that the DNS validation logic in the process method correctly validates
-    pipeline names according to DNS compliance rules:
+    Verify that _validate_pipeline_name correctly validates pipeline names
+    according to DNS compliance rules:
     - Only lowercase letters (a-z), numbers (0-9), and hyphens (-)
     - Must start and end with a letter or number
     - Must be between 1 and 58 characters long
+    """
+    if should_pass:
+        # Valid pipeline names should not raise an exception
+        KfpPipelineProcessor._validate_pipeline_name(pipeline_name)
+    else:
+        # Invalid pipeline names should raise a SyntaxError
+        with pytest.raises(SyntaxError) as exc_info:
+            KfpPipelineProcessor._validate_pipeline_name(pipeline_name)
+
+        # Verify that the error message contains all required elements
+        error_message = str(exc_info.value)
+        if pipeline_name:
+            assert pipeline_name in error_message, "Error message should contain the invalid pipeline name"
+        assert "not DNS compliant" in error_message, "Error message should mention DNS compliance"
+
+
+@pytest.mark.parametrize(
+    "pipeline_name,should_pass",
+    [
+        ("valid-pipeline-name", True),  # Valid name should pass
+        ("Invalid_Pipeline_Name", False),  # Invalid name should fail
+    ],
+)
+def test_dns_validation_called_in_process(monkeypatch, processor: KfpPipelineProcessor, pipeline_name, should_pass):
+    """
+    Verify that the process method actually calls DNS validation and that
+    invalid pipeline names cause the process to fail before making network calls.
+    This is an integration test to ensure DNS validation is properly integrated
+    into the workflow.
     """
     # Create a minimal pipeline object with the test name
     pipeline = Pipeline(
         id="test-pipeline-id",
         name=pipeline_name,
-        description="Test pipeline for DNS validation",
+        description="Test pipeline for DNS validation integration",
         runtime="kfp",
         runtime_config="test-config",
         source="test.pipeline",
@@ -427,32 +455,39 @@ def test_dns_validation_in_process(monkeypatch, processor: KfpPipelineProcessor,
         "cos_password": "test_password",
     }
 
-    # Mock the KFP client to prevent actual API calls
+    # Mock authentication to avoid HTTP requests
+    mock_auth_info = {"cookies": None, "credentials": None, "existing_token": None}
+
+    # Mock KFP client
     mock_kfp_client = MagicMock()
     mock_kfp_client.list_experiments.return_value = MagicMock()
 
-    # Mock processor methods to avoid actual processing but allow DNS validation to run
+    # Mock authentication
     monkeypatch.setattr(processor, "_get_metadata_configuration", lambda schemaspace, name: mock_runtime_config)
-    monkeypatch.setattr(processor, "_verify_cos_connectivity", lambda x: True)
-    monkeypatch.setattr(processor, "_upload_dependencies_to_object_store", lambda w, x, y, prefix: True)
-    monkeypatch.setattr(processor, "_generate_pipeline_dsl", lambda **kwargs: "mock_dsl")
-    monkeypatch.setattr(processor, "_compile_pipeline_dsl", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "elyra.pipeline.kfp.processor_kfp.KFPAuthenticator",
+        lambda: MagicMock(authenticate=lambda *args, **kwargs: mock_auth_info),
+    )
+    monkeypatch.setattr("elyra.pipeline.kfp.processor_kfp.ArgoClient", lambda *args, **kwargs: mock_kfp_client)
 
-    # Check that valid pipeline names do not raise an exception
     if should_pass:
-        processor.process(pipeline)
+        # For valid names, mock the rest of the workflow to avoid unnecessary execution
+        monkeypatch.setattr(processor, "_verify_cos_connectivity", lambda x: True)
+        monkeypatch.setattr(processor, "_upload_dependencies_to_object_store", lambda w, x, y, prefix: True)
+        monkeypatch.setattr(processor, "_generate_pipeline_dsl", lambda **kwargs: "mock_dsl")
+        monkeypatch.setattr(processor, "_compile_pipeline_dsl", lambda **kwargs: None)
 
-    # Check that invalid pipeline names raise an exception
+        # Valid pipeline names should not raise an exception
+        processor.process(pipeline)
     else:
-        # Invalid pipeline names should raise a SyntaxError
+        # Invalid pipeline names should raise a SyntaxError before any network calls
         with pytest.raises(SyntaxError) as exc_info:
             processor.process(pipeline)
 
-        # Verify that the error message contains all required elements
+        # Verify the error message
         error_message = str(exc_info.value)
-        if pipeline_name:
-            assert pipeline_name in error_message, "Error message should contain the invalid pipeline name"
-        assert "not DNS compliant" in error_message, "Error message should mention DNS compliance"
+        assert pipeline_name in error_message
+        assert "not DNS compliant" in error_message
 
 
 # ---------------------------------------------------
