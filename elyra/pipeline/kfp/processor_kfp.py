@@ -117,6 +117,21 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
     # Defaults to `/tmp`
     WCD = os.getenv("ELYRA_WRITABLE_CONTAINER_DIR", "/tmp").strip().rstrip("/")
 
+    # Create helper to verify pipeline_name DNS compliance
+    @staticmethod
+    def _validate_pipeline_name(pipeline_name: str) -> None:
+        """Validate that the pipeline name is DNS compliant"""
+        dns_regex = r"(?=[a-z0-9-]{1,58}$)[a-z0-9]([-a-z0-9]*[a-z0-9])?"
+        if not re.fullmatch(dns_regex, pipeline_name):
+            error_message_str = (
+                f"The pipeline name '{pipeline_name}' is not DNS compliant. \n\n"
+                "Action Required: Please rename your notebook/pipeline. "
+                "Use only lowercase letters, numbers, and hyphens (no underscores or dots). "
+                "Must start/end with a letter or number and be 1 - 58 characters long. "
+            )
+            raise SyntaxError(error_message_str)
+
+
     # Set the method for passing parameters to notebook and scripts
     # Only one value is currently supported ("env", which passes
     # parameters as environment variables)
@@ -227,20 +242,9 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
         #############
         # Pipeline Metadata none - inherited
         #############
-        # generate pipeline name
+        # generate a pipeline name
         pipeline_name = pipeline.name
-        # create regex logic to check for DNS compliance in kfp name
-        dns_regex = r"(?=[a-z0-9-]{1,58}$)[a-z0-9]([-a-z0-9]*[a-z0-9])?"
-
-        # check if pipeline_name matches DNS compliance logic and throw error if not
-        if not re.fullmatch(dns_regex, pipeline_name):
-            error_message_str = (
-                f"The pipeline name '{pipeline_name}' is not DNS compliant. \n\n"
-                "Action Required: Please rename your notebook/pipeline. "
-                "Use only lowercase letters, numbers, and hyphens (no underscores or dots). "
-                "Must start/end with a letter or number and be 1 - 58 characters long. "
-            )
-            raise SyntaxError(error_message_str)
+        self._validate_pipeline_name(pipeline_name)
 
         # generate a pipeline description
         pipeline_description = pipeline.description
@@ -455,6 +459,7 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
         t0_all = time.time()
         timestamp = datetime.now().strftime("%m%d%H%M%S")
         pipeline_name = pipeline.name
+        self._validate_pipeline_name(pipeline_name)
         # Create an instance id that will be used to store
         # the pipelines' dependencies, if applicable
         pipeline_instance_id = f"{pipeline_name}-{timestamp}"

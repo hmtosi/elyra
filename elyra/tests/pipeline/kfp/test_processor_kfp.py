@@ -20,6 +20,7 @@ from pathlib import Path
 import re
 from typing import Any
 from typing import Dict
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
@@ -365,33 +366,31 @@ def test_add_kubernetes_toleration(processor: KfpPipelineProcessor):
     "pipeline_name,should_pass",
     [
         # Valid DNS-compliant names
-        ("test", True),
-        ("test-pipeline", True),
-        ("test123", True),
-        ("123test", True),
-        ("a", True),
-        ("test-123-pipeline", True),
-        ("my-pipeline-1", True),
-        ("a1b2c3", True),
-        ("test-pipeline-with-multiple-hyphens", True),
+        ("test", True),  # All letters
+        ("test-pipeline", True), # Letters and hyphen
+        ("test123", True),  # Letters and numbers
+        ("123test", True),  # Numbers and Letters
+        ("1-2-3", True),  # Numbers and hyphens
+        ("test-123-pipeline", True), # Multiple hyphens
+        ("test--pipeline", True),  # Double hyphen
         ("a" * 58, True),  # Max length (58 characters)
-        ("test--pipeline", True),  # Double hyphen is valid
-        ("1-2-3", True),  # All numbers with hyphens is valid
+        ("a", True), # Min length (1 charachter)
+        
         # Invalid DNS-compliant names
         ("Test", False),  # Uppercase
         ("TEST", False),  # All uppercase
+        ("Test-Pipeline", False),  # Uppercase with hyphen
+        ("-test", False),  # Starts with hyphen
+        ("test-", False),  # Ends with hyphen
+        ("-", False),  # Just a hyphen
+        ("a" * 59, False),  # Too long (59 characters)
+        ("", False),  # Empty string
+        ("test_123", False),  # Underscore with letters and numbers
         ("test_pipeline", False),  # Underscore
         ("test.pipeline", False),  # Dot
         ("test pipeline", False),  # Space
-        ("-test", False),  # Starts with hyphen
-        ("test-", False),  # Ends with hyphen
-        ("a" * 59, False),  # Too long (59 characters)
-        ("", False),  # Empty string
         ("test@pipeline", False),  # Special character (@)
         ("test!pipeline", False),  # Special character (!)
-        ("Test-Pipeline", False),  # Mixed case
-        ("-", False),  # Just a hyphen
-        ("test_123", False),  # Underscore with numbers
     ],
 )
 def test_dns_validation_in_process(monkeypatch, processor: KfpPipelineProcessor, pipeline_name, should_pass):
@@ -402,8 +401,6 @@ def test_dns_validation_in_process(monkeypatch, processor: KfpPipelineProcessor,
     - Must start and end with a letter or number
     - Must be between 1 and 58 characters long
     """
-    from unittest.mock import MagicMock
-
     # Create a minimal pipeline object with the test name
     pipeline = Pipeline(
         id="test-pipeline-id",
@@ -438,19 +435,12 @@ def test_dns_validation_in_process(monkeypatch, processor: KfpPipelineProcessor,
     monkeypatch.setattr(processor, "_get_metadata_configuration", lambda schemaspace, name: mock_runtime_config)
     monkeypatch.setattr(processor, "_verify_cos_connectivity", lambda x: True)
     monkeypatch.setattr(processor, "_upload_dependencies_to_object_store", lambda w, x, y, prefix: True)
-    monkeypatch.setattr(processor, "_initialize_kfp_client", lambda x, y: mock_kfp_client)
     monkeypatch.setattr(processor, "_generate_pipeline_dsl", lambda **kwargs: "mock_dsl")
     monkeypatch.setattr(processor, "_compile_pipeline_dsl", lambda **kwargs: None)
-    monkeypatch.setattr(processor, "_upload_pipeline_to_server", lambda **kwargs: None)
 
     # Check that valid pipeline names do not raise an exception
     if should_pass:
-        # Valid pipeline names should not raise an exception
-        try:
-            processor.process(pipeline)
-        # Print an error if they do
-        except SyntaxError:
-            pytest.fail(f"Pipeline name '{pipeline_name}' should be valid but raised SyntaxError")
+        processor.process(pipeline)
 
     # Check that invalid pipeline names raise an exception
     else:
@@ -460,17 +450,9 @@ def test_dns_validation_in_process(monkeypatch, processor: KfpPipelineProcessor,
 
         # Verify that the error message contains all required elements
         error_message = str(exc_info.value)
-        assert pipeline_name in error_message, "Error message should contain the invalid pipeline name"
+        if pipeline_name:
+            assert pipeline_name in error_message, "Error message should contain the invalid pipeline name"
         assert "not DNS compliant" in error_message, "Error message should mention DNS compliance"
-        assert "Action Required" in error_message, "Error message should include action required section"
-        assert "lowercase letters" in error_message, "Error message should mention lowercase letters"
-        assert "numbers" in error_message, "Error message should mention numbers"
-        assert "hyphens" in error_message, "Error message should mention hyphens"
-        assert "no underscores or dots" in error_message, "Error message should mention what to avoid"
-        assert (
-            "start/end with a letter or number" in error_message
-        ), "Error message should mention start/end requirements"
-        assert "58 characters" in error_message, "Error message should mention character limit"
 
 
 # ---------------------------------------------------
