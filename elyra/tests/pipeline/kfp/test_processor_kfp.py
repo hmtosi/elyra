@@ -463,7 +463,7 @@ def test_dns_validation_called_in_process(monkeypatch, processor: KfpPipelinePro
     mock_kfp_client.list_experiments.return_value = MagicMock()
 
     # Mock authentication
-    monkeypatch.setattr(processor, "_get_metadata_configuration", lambda schemaspace, name: mock_runtime_config)
+    monkeypatch.setattr(processor, "_get_metadata_configuration", lambda *args, **kwargs: mock_runtime_config)
     monkeypatch.setattr(
         "elyra.pipeline.kfp.processor_kfp.KFPAuthenticator",
         lambda: MagicMock(authenticate=lambda *args, **kwargs: mock_auth_info),
@@ -473,9 +473,10 @@ def test_dns_validation_called_in_process(monkeypatch, processor: KfpPipelinePro
     if should_pass:
         # For valid names, mock the rest of the workflow to avoid unnecessary execution
         monkeypatch.setattr(processor, "_verify_cos_connectivity", lambda x: True)
-        monkeypatch.setattr(processor, "_upload_dependencies_to_object_store", lambda w, x, y, prefix: True)
-        monkeypatch.setattr(processor, "_generate_pipeline_dsl", lambda **kwargs: "mock_dsl")
-        monkeypatch.setattr(processor, "_compile_pipeline_dsl", lambda **kwargs: None)
+        monkeypatch.setattr(processor, "_upload_dependencies_to_object_store", lambda *args, **kwargs: True)
+        monkeypatch.setattr(processor, "_generate_pipeline_dsl", lambda *args, **kwargs: "mock_dsl")
+        monkeypatch.setattr(processor, "_get_metadata_configuration", lambda *args, **kwargs: MagicMock())
+        monkeypatch.setattr(processor, "_compile_pipeline_dsl", lambda *args, **kwargs: None)
 
         # Valid pipeline names should not raise an exception
         processor.process(pipeline)
@@ -1224,8 +1225,7 @@ def enable_and_disable_crio(request):
     ],
     indirect=True,
 )
-@pytest.mark.skip(
-    reason="This test is not compatible with KFP v2 as the generated YAML is ignoring \
+@pytest.mark.skip(reason="This test is not compatible with KFP v2 as the generated YAML is ignoring \
             attributes from the source pipeline file")
 def test_generate_pipeline_dsl_compile_pipeline_dsl_optional_elyra_properties(
     monkeypatch, processor: KfpPipelineProcessor, metadata_dependencies: Dict[str, Any], tmpdir
