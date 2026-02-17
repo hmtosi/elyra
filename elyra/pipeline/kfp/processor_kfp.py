@@ -131,7 +131,6 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
             )
             raise SyntaxError(error_message_str)
 
-
     # Set the method for passing parameters to notebook and scripts
     # Only one value is currently supported ("env", which passes
     # parameters as environment variables)
