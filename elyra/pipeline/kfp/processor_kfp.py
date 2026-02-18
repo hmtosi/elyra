@@ -31,7 +31,6 @@ from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Set
-from urllib.parse import urlsplit
 
 from autopep8 import fix_code
 from jinja2 import Environment
@@ -118,6 +117,20 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
     # Defaults to `/tmp`
     WCD = os.getenv("ELYRA_WRITABLE_CONTAINER_DIR", "/tmp").strip().rstrip("/")
 
+    # Create helper to verify pipeline_name DNS compliance
+    @staticmethod
+    def _validate_pipeline_name(pipeline_name: str) -> None:
+        """Validate that the pipeline name is DNS compliant"""
+        dns_regex = r"(?=[a-z0-9-]{1,58}$)[a-z0-9]([-a-z0-9]*[a-z0-9])?"
+        if not re.fullmatch(dns_regex, pipeline_name):
+            error_message_str = (
+                f"The pipeline name '{pipeline_name}' is not DNS compliant. \n\n"
+                "Action Required: Please rename your notebook/pipeline. "
+                "Use only lowercase letters, numbers, and hyphens (no underscores or dots). "
+                "Must start/end with a letter or number and be 1 - 58 characters long. "
+            )
+            raise SyntaxError(error_message_str)
+
     # Set the method for passing parameters to notebook and scripts
     # Only one value is currently supported ("env", which passes
     # parameters as environment variables)
@@ -203,21 +216,9 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
                 ssl_ca_cert=auth_info.get("ssl_ca_cert", None),
             )
         except Exception as ex:
-            # a common cause of these errors is forgetting to include `/pipeline` or including it with an 's'
-            api_endpoint_obj = urlsplit(api_endpoint)
-            if api_endpoint_obj.path != "/pipeline":
-                api_endpoint_tip = api_endpoint_obj._replace(path="/pipeline").geturl()
-                tip_string = (
-                    f" - [TIP: did you mean to set '{api_endpoint_tip}' as the endpoint, "
-                    f"take care not to include 's' at end]"
-                )
-            else:
-                tip_string = ""
-
             raise RuntimeError(
                 f"Failed to initialize `kfp.Client()` against: '{api_endpoint}' - "
                 f"Check Kubeflow Pipelines runtime configuration: '{pipeline.runtime_config}'"
-                f"{tip_string}"
             ) from ex
 
         #############
@@ -242,6 +243,7 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
         #############
         # generate a pipeline name
         pipeline_name = pipeline.name
+        self._validate_pipeline_name(pipeline_name)
 
         # generate a pipeline description
         pipeline_description = pipeline.description
@@ -353,21 +355,9 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
                     version_id = kfp_pipeline.pipeline_version_id
 
             except Exception as ex:
-                # a common cause of these errors is forgetting to include `/pipeline` or including it with an 's'
-                api_endpoint_obj = urlsplit(api_endpoint)
-                if api_endpoint_obj.path != "/pipeline":
-                    api_endpoint_tip = api_endpoint_obj._replace(path="/pipeline").geturl()
-                    tip_string = (
-                        f" - [TIP: did you mean to set '{api_endpoint_tip}' as the endpoint, "
-                        f"take care not to include 's' at end]"
-                    )
-                else:
-                    tip_string = ""
-
                 raise RuntimeError(
                     f"Failed to upload Kubeflow pipeline '{pipeline_name}' - "
                     f"Check Kubeflow Pipelines runtime configuration: '{pipeline.runtime_config}'"
-                    f"{tip_string}"
                 ) from ex
 
             self.log_pipeline_info(pipeline_name, "pipeline uploaded", duration=time.time() - t0)
@@ -468,6 +458,7 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
         t0_all = time.time()
         timestamp = datetime.now().strftime("%m%d%H%M%S")
         pipeline_name = pipeline.name
+        self._validate_pipeline_name(pipeline_name)
         # Create an instance id that will be used to store
         # the pipelines' dependencies, if applicable
         pipeline_instance_id = f"{pipeline_name}-{timestamp}"

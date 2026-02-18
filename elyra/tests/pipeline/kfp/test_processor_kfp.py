@@ -20,6 +20,7 @@ from pathlib import Path
 import re
 from typing import Any
 from typing import Dict
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
@@ -354,6 +355,133 @@ def test_add_kubernetes_toleration(processor: KfpPipelineProcessor):
         assert execution_object["kubernetes_tolerations"][toleration_hash]["operator"] == instance.operator
         assert execution_object["kubernetes_tolerations"][toleration_hash]["effect"] == instance.effect
     assert len(expected_unique_execution_object_entries) == len(execution_object["kubernetes_tolerations"].keys())
+
+
+# ---------------------------------------------------
+# Tests for DNS validation in KfpPipelineProcessor
+# ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "pipeline_name,should_pass",
+    [
+        # Valid DNS-compliant names
+        ("test", True),  # All letters
+        ("test-pipeline", True),  # Letters and hyphen
+        ("test123", True),  # Letters and numbers
+        ("123test", True),  # Numbers and letters
+        ("1-2-3", True),  # Numbers and hyphens
+        ("test-123-pipeline", True),  # Numbers letters and hyphens
+        ("test--pipeline", True),  # Double hyphen
+        ("a" * 58, True),  # Max length (58 characters)
+        ("a", True),  # Min length (1 character)
+        # Invalid DNS-compliant names
+        ("Test", False),  # Uppercase
+        ("TEST", False),  # All uppercase
+        ("Test-Pipeline", False),  # Uppercase with hyphen
+        ("-test", False),  # Starts with hyphen
+        ("test-", False),  # Ends with hyphen
+        ("-", False),  # Just a hyphen
+        ("a" * 59, False),  # Too long (59 characters)
+        ("", False),  # Empty string
+        ("test_123", False),  # Underscore with letters and numbers
+        ("test_pipeline", False),  # Underscore
+        ("test.pipeline", False),  # Dot
+        ("test pipeline", False),  # Space
+        ("test@pipeline", False),  # Special character (@)
+        ("test!pipeline", False),  # Special character (!)
+    ],
+)
+def test_validate_pipeline_name(pipeline_name, should_pass):
+    """
+    Verify that _validate_pipeline_name correctly validates pipeline names
+    according to DNS compliance rules:
+    - Only lowercase letters (a-z), numbers (0-9), and hyphens (-)
+    - Must start and end with a letter or number
+    - Must be between 1 and 58 characters long
+    """
+    if should_pass:
+        # Valid pipeline names should not raise an exception
+        KfpPipelineProcessor._validate_pipeline_name(pipeline_name)
+    else:
+        # Invalid pipeline names should raise a SyntaxError
+        with pytest.raises(SyntaxError) as exc_info:
+            KfpPipelineProcessor._validate_pipeline_name(pipeline_name)
+
+        # Verify that the error message contains all required elements
+        error_message = str(exc_info.value)
+        if pipeline_name:
+            assert pipeline_name in error_message, "Error message should contain the invalid pipeline name"
+        assert "not DNS compliant" in error_message, "Error message should mention DNS compliance"
+
+
+@pytest.mark.parametrize(
+    "pipeline_name,should_pass",
+    [
+        ("valid-pipeline-name", True),  # Valid name should pass
+        ("Invalid_Pipeline_Name", False),  # Invalid name should fail
+    ],
+)
+def test_dns_validation_called_in_process(monkeypatch, processor: KfpPipelineProcessor, pipeline_name, should_pass):
+    """
+    Verify that the process method actually calls DNS validation and that
+    invalid pipeline names cause the process to fail before making network calls.
+    This is an integration test to ensure DNS validation is properly integrated
+    into the workflow.
+    """
+    # Create a minimal pipeline object with the test name
+    pipeline = Pipeline(
+        id="test-pipeline-id",
+        name=pipeline_name,
+        description="Test pipeline for DNS validation integration",
+        runtime="kfp",
+        runtime_config="test-config",
+        source="test.pipeline",
+    )
+
+    # Mock the runtime configuration retrieval
+    mock_runtime_config = MagicMock()
+    mock_runtime_config.name = "test-config"
+    mock_runtime_config.metadata = {
+        "display_name": "Test KFP",
+        "api_endpoint": "http://example.com:31737",
+        "user_namespace": "kubeflow-user",
+        "auth_type": "NO_AUTHENTICATION",
+        "engine": "Argo",
+        "cos_endpoint": "http://example.com:31671",
+        "cos_bucket": "test-bucket",
+        "cos_auth_type": "USER_CREDENTIALS",
+        "cos_username": "test_user",
+        "cos_password": "test_password",
+    }
+
+    # Mock authentication to avoid HTTP requests
+    mock_auth_info = {"cookies": None, "credentials": None, "existing_token": None}
+
+    # Mock KFP client
+    mock_kfp_client = MagicMock()
+    mock_kfp_client.list_experiments.return_value = MagicMock()
+
+    # Mock authentication
+    monkeypatch.setattr(processor, "_get_metadata_configuration", lambda *args, **kwargs: mock_runtime_config)
+    monkeypatch.setattr(
+        "elyra.pipeline.kfp.processor_kfp.KFPAuthenticator",
+        lambda: MagicMock(authenticate=lambda *args, **kwargs: mock_auth_info),
+    )
+    monkeypatch.setattr("elyra.pipeline.kfp.processor_kfp.ArgoClient", lambda *args, **kwargs: mock_kfp_client)
+
+    if should_pass:
+        # For valid names, mock the rest of the workflow to avoid unnecessary execution
+        monkeypatch.setattr(processor, "_verify_cos_connectivity", lambda x: True)
+        monkeypatch.setattr(processor, "_upload_dependencies_to_object_store", lambda *args, **kwargs: True)
+        monkeypatch.setattr(processor, "_generate_pipeline_dsl", lambda *args, **kwargs: "mock_dsl")
+        monkeypatch.setattr(processor, "_compile_pipeline_dsl", lambda *args, **kwargs: None)
+        # Valid pipeline names should not raise an exception
+        processor.process(pipeline)
+    else:
+        # Invalid pipeline names should raise a SyntaxError before any network calls
+        with pytest.raises(SyntaxError, match="not DNS compliant"):
+            processor.process(pipeline)
 
 
 # ---------------------------------------------------
