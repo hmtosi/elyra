@@ -695,6 +695,7 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
             cos_password = runtime_configuration.metadata.get("cos_password")
             cos_secret = runtime_configuration.metadata.get("cos_secret")
             cos_endpoint = runtime_configuration.metadata["cos_endpoint"]
+            cos_public_endpoint = runtime_configuration.metadata.get("public_cos_endpoint", cos_endpoint)
             cos_bucket = runtime_configuration.metadata.get("cos_bucket")
             artifact_object_prefix = join_paths(
                 pipeline.pipeline_properties.get(pipeline_constants.COS_OBJECT_PREFIX), pipeline_instance_id
@@ -770,7 +771,7 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
                     task_parameters=task_parameters,
                     command_args=self._compose_container_command_args(
                         pipeline_name=pipeline_name,
-                        cos_endpoint=cos_endpoint,
+                        cos_endpoint=cos_public_endpoint,
                         cos_bucket=cos_bucket,
                         cos_directory=artifact_object_prefix,
                         cos_dependencies_archive=self._get_dependency_archive_name(operation),
